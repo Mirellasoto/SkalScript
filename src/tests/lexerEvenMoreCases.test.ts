@@ -1,5 +1,5 @@
-import { Lexer } from "../tokenizer/Lexer";
-import { TokenType } from "../tokenizer/TokenType";
+import { Lexer } from "../lexer/Lexer";
+import { TokenType } from "../lexer/TokenType";
 
 //helper
 function tokenize(input: string) {

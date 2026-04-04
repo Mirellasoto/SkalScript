@@ -1,5 +1,5 @@
-import { Lexer } from "../tokenizer/Lexer";
-import { TokenType } from "../tokenizer/TokenType";
+import { Lexer } from "../lexer/Lexer";
+import { TokenType } from "../lexer/TokenType";
 
 function nextType(input: string): TokenType {
     return new Lexer(input).nextToken().type;
