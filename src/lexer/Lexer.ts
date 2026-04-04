@@ -1,4 +1,3 @@
-
 import { Token } from "./Token"
 import { TokenType } from "./TokenType"
 import { keywords } from "./keywords"
@@ -52,7 +51,7 @@ export class Lexer {
     }
 
     //if the first character is a letter read identifier/keyword
-    if (/[a-zA-Z]/.test(char)) {
+    if (/[a-zA-Z_]/.test(char)) {
       return this.readIdentifier()
     }
 
@@ -95,6 +94,9 @@ export class Lexer {
       case '<':
         return { type: TokenType.LESS }
 
+      case '>':
+        return { type: TokenType.GREATER } // <-- added missing token
+
       case '_':
         return { type: TokenType.UNDERSCORE }
 
@@ -112,7 +114,7 @@ export class Lexer {
           return { type: TokenType.ARROW }
         }
 
-        //oherwise it's just assignment =
+        //otherwise it's just assignment =
         return { type: TokenType.EQUAL }
 
       default:
@@ -143,15 +145,15 @@ export class Lexer {
 
     let id = ""
 
-    //continue reading letters and underscores
-    while (/[a-zA-Z_]/.test(this.peek())) {
+    //continue reading letters, digits, and underscores
+    while (/[a-zA-Z0-9_]/.test(this.peek())) {
       id += this.advance()
     }
 
     //check if the identifier matches a keyword
     const keyword = keywords[id]
 
-    if (keyword) {
+    if (keyword !== undefined) {
       return { type: keyword }
     }
 

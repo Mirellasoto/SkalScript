@@ -2,7 +2,6 @@ export enum TokenType {
     IDENTIFIER,
     INTEGER,
 
-
     // keywords
     VAL,
     VAR,
@@ -36,6 +35,7 @@ export enum TokenType {
     STAR,
     SLASH,
     LESS,
+    GREATER, 
     EQUAL,
     DOUBLE_EQUAL,
     ARROW,

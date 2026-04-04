@@ -1,6 +1,6 @@
 //import the lexer and token types
-import { Lexer } from "../tokenizer/Lexer"
-import { TokenType } from "../tokenizer/TokenType"
+import { Lexer } from "../lexer/Lexer"
+import { TokenType } from "../lexer/TokenType"
 
 
 //test that the lexer correctly ignores whitespace
