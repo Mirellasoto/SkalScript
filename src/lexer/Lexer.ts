@@ -50,10 +50,10 @@ export class Lexer {
       return this.readNumber()
     }
 
-    //if the first character is a letter read identifier/keyword
-    if (/[a-zA-Z_]/.test(char)) {
+    ///if the first character is a letter read identifier/keyword
+    if (/[a-zA-Z]/.test(char)) {
       return this.readIdentifier()
-    }
+    }     
 
     //handle single-character symbols
     switch (this.advance()) {
@@ -95,7 +95,7 @@ export class Lexer {
         return { type: TokenType.LESS }
 
       case '>':
-        return { type: TokenType.GREATER } // <-- added missing token
+        return { type: TokenType.GREATER } 
 
       case '_':
         return { type: TokenType.UNDERSCORE }

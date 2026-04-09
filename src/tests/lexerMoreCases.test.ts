@@ -38,6 +38,10 @@ test("throws on unexpected character", () => {
   expect(() => new Lexer("@").nextToken()).toThrow("Unexpected character: @");
 });
 
+test("greater-than token", () => {
+  expect(nextType(">")).toBe(TokenType.GREATER)
+})
+
 test("keyword tokens", () => {
   expect(nextType("var")).toBe(TokenType.VAR);
   expect(nextType("def")).toBe(TokenType.DEF);

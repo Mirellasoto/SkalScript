@@ -57,11 +57,11 @@ export class Parser {
 
   //parse == expressions
   private parseEquality() {
-    let left = this.parseLessThan()
+    let left = this.parseComparison()
 
     while (this.match(TokenType.DOUBLE_EQUAL)) {
       const operator = "=="
-      const right = this.parseLessThan()
+      const right = this.parseComparison()
 
       left = {
         kind: "BinaryExpression",
@@ -74,19 +74,33 @@ export class Parser {
     return left
   }
 
-  //parse < expressions
-  private parseLessThan() {
+  //parse < and > expressions
+  private parseComparison() {
     let left = this.parseAdditive()
 
-    while (this.match(TokenType.LESS)) {
-      const operator = "<"
-      const right = this.parseAdditive()
+    while (true) {
+      if (this.match(TokenType.LESS)) {
+        const operator = "<"
+        const right = this.parseAdditive()
 
-      left = {
-        kind: "BinaryExpression",
-        operator,
-        left,
-        right
+        left = {
+          kind: "BinaryExpression",
+          operator,
+          left,
+          right
+        }
+      } else if (this.match(TokenType.GREATER)) {
+        const operator = ">"
+        const right = this.parseAdditive()
+
+        left = {
+          kind: "BinaryExpression",
+          operator,
+          left,
+          right
+        }
+      } else {
+        break
       }
     }
 
