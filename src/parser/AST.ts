@@ -185,3 +185,39 @@ export interface MatchExpression {
   subject: Expression
   cases: Case[]
 }
+
+// ============================================================
+// Top-level definitions
+// ============================================================
+
+// consname(comma_type)
+export interface ConstructorDef {
+  name: string
+  params: Type[]
+}
+
+// algdef algname [< comma_typevar >] { comma_consdef }
+export interface AlgDef {
+  kind: "AlgDef"
+  name: string
+  typeParams: string[]
+  constructors: ConstructorDef[]
+}
+
+// def fn [< comma_typevar >] (comma_param) : type = exp ;
+export interface FuncDef {
+  kind: "FuncDef"
+  name: string
+  typeParams: string[]
+  params: Param[]
+  returnType: Type
+  body: Expression
+}
+
+// algdef* funcdef* exp
+export interface Program {
+  kind: "Program"
+  algDefs: AlgDef[]
+  funcDefs: FuncDef[]
+  expr: Expression
+}
