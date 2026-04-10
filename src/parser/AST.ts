@@ -27,7 +27,7 @@ export interface AlgebraicType {
   typeArgs: Type[]
 }
 
-// (comma_type) => type
+// (comma_type) (=> type)*
 export interface FunctionType {
   kind: "FunctionType"
   paramTypes: Type[]
@@ -146,16 +146,16 @@ export interface Identifier {
 
 export interface BinaryExpression {
   kind: "BinaryExpression"
-  operator: string
+  operator: "+" | "-" | "*" | "/" | "<" | ">" | "==" //constrains to a set of operators. See Suggestions.txt at root.
   left: Expression
   right: Expression
 }
 
-// primary_exp (type_instantiation? ( comma_exp ))*
+// primary_exp (type_instantiation ( comma_exp ))*
 export interface CallExpression {
   kind: "CallExpression"
   callee: Expression
-  typeArgs: Type[]
+  typeArgs: Type[] //note: a call can have zero type args.
   args: Expression[]
 }
 
@@ -183,7 +183,7 @@ export interface BlockExpression {
 export interface MatchExpression {
   kind: "MatchExpression"
   subject: Expression
-  cases: Case[]
+  cases: [Case, ...Case[]] //Fixed to require at least one case.
 }
 
 // ============================================================
@@ -201,7 +201,7 @@ export interface AlgDef {
   kind: "AlgDef"
   name: string
   typeParams: string[]
-  constructors: ConstructorDef[]
+  constructors: [ConstructorDef, ...ConstructorDef[]] //Fixed to require at least one constructor.
 }
 
 // def fn [< comma_typevar >] (comma_param) : type = exp ;
