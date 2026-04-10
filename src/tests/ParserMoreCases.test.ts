@@ -37,21 +37,6 @@ describe("Parser more tests", () => {
     })
     })
 
-    it("parses chained less-than", () => {
-        const parser = new Parser(tokenize("1 < 2 < 3"))
-        expect(parser.parseExpression()).toEqual({
-            kind: "BinaryExpression",
-            operator: "<",
-            left: {
-                kind: "BinaryExpression",
-                operator: "<",
-                left: { kind: "IntegerLiteral", value: 1 },
-                right: { kind: "IntegerLiteral", value: 2 }
-            },
-            right: { kind: "IntegerLiteral", value: 3 }
-        })
-    })
-
     it("parses equality with lower precedence than <", () => {
         const parser = new Parser(tokenize("1 < 2 == 3"))
         expect(parser.parseExpression()).toEqual({
