@@ -1,0 +1,12 @@
+//Define a new type for binary operators:
+
+export type BinaryOperator = "+" | "-" | "*" | "/" | "<" | ">" | "=="
+
+  //And then use it in BinaryExpression:
+
+  export interface BinaryExpression {
+    kind: "BinaryExpression"
+    operator: BinaryOperator
+    left: Expression
+    right: Expression
+  }

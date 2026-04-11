@@ -1,5 +1,6 @@
 import { Token } from "../lexer/Token"
 import { TokenType } from "../lexer/TokenType"
+import { Expression, Type, Param } from "./AST"
 
 
 //the Parser converts tokens into an AST
@@ -51,21 +52,19 @@ export class Parser {
   }
 
   //main parser function for expressions
-  parseExpression() {
+  parseExpression(): Expression {
     return this.parseEquality()
   }
 
-  //parse == expressions
-  private parseEquality() {
-    let left = this.parseComparison()
+  //parse == expressions (at most one ==)
+  private parseEquality(): Expression {
+    const left: Expression = this.parseComparison()
 
-    while (this.match(TokenType.DOUBLE_EQUAL)) {
-      const operator = "=="
+    if (this.match(TokenType.DOUBLE_EQUAL)) {
       const right = this.parseComparison()
-
-      left = {
+      return {
         kind: "BinaryExpression",
-        operator,
+        operator: "==",
         left,
         right
       }
@@ -74,33 +73,27 @@ export class Parser {
     return left
   }
 
-  //parse < and > expressions
-  private parseComparison() {
-    let left = this.parseAdditive()
+  //parse < and > expressions (at most one < or >)
+  private parseComparison(): Expression {
+    const left: Expression = this.parseAdditive()
 
-    while (true) {
-      if (this.match(TokenType.LESS)) {
-        const operator = "<"
-        const right = this.parseAdditive()
+    if (this.match(TokenType.LESS)) {
+      const right = this.parseAdditive()
+      return {
+        kind: "BinaryExpression",
+        operator: "<",
+        left,
+        right
+      }
+    }
 
-        left = {
-          kind: "BinaryExpression",
-          operator,
-          left,
-          right
-        }
-      } else if (this.match(TokenType.GREATER)) {
-        const operator = ">"
-        const right = this.parseAdditive()
-
-        left = {
-          kind: "BinaryExpression",
-          operator,
-          left,
-          right
-        }
-      } else {
-        break
+    if (this.match(TokenType.GREATER)) {
+      const right = this.parseAdditive()
+      return {
+        kind: "BinaryExpression",
+        operator: ">",
+        left,
+        right
       }
     }
 
@@ -108,8 +101,8 @@ export class Parser {
   }
 
   //parse + and - expressions
-  private parseAdditive() {
-    let left = this.parseMultiplicative()
+  private parseAdditive(): Expression {
+    let left: Expression = this.parseMultiplicative()
 
     while (true) {
       if (this.match(TokenType.PLUS)) {
@@ -141,8 +134,8 @@ export class Parser {
   }
 
   //parse * and / expressions
-  private parseMultiplicative() {
-    let left = this.parsePrimary()
+  private parseMultiplicative(): Expression {
+    let left: Expression = this.parsePrimary()
 
     while (true) {
       if (this.match(TokenType.STAR)) {
@@ -174,7 +167,7 @@ export class Parser {
   }
 
   //parse integers, identifiers, booleans, unit, and parenthesized expressions
-  private parsePrimary() {
+  private parsePrimary(): Expression {
     const token = this.peek()
 
     //parse integer literals
@@ -212,17 +205,84 @@ export class Parser {
     if (this.match(TokenType.IDENTIFIER)) {
       return {
         kind: "Identifier",
-        name: token.value
+        name: token.value! //the above if case being true and Lexer's readIndentifier should guarantee that value is defined.
       }
     }
 
     //parse parenthesized expressions
     if (this.match(TokenType.LPAREN)) {
-      const expr = this.parseExpression()
+      const expr: Expression = this.parseExpression()
       this.consume(TokenType.RPAREN, "Expected ')' after expression.")
       return expr
     }
 
     throw new Error("Expected expression. Found: " + TokenType[this.peek().type])
+  }
+
+  // type ::= `Int` | `Boolean` | `Unit`
+  //        | typevar
+  //        | algname type_instantiation
+  //        | `(` comma_type `)` (`=>` type)*
+  parseType(): Type {
+
+    // built-in types
+    if (this.match(TokenType.INT))     return { kind: "BuiltinType", name: "Int" }
+    if (this.match(TokenType.BOOLEAN)) return { kind: "BuiltinType", name: "Boolean" }
+    if (this.match(TokenType.UNIT_TYPE)) return { kind: "BuiltinType", name: "Unit" }
+
+    // typevar or algname type_instantiation
+    if (this.check(TokenType.IDENTIFIER)) {
+      const name = this.advance().value!
+
+      // type_instantiation: `<` comma_type_nonempty `>`
+      if (this.match(TokenType.LESS)) {
+        const typeArgs: Type[] = [this.parseType()]
+        while (this.match(TokenType.COMMA)) {
+          typeArgs.push(this.parseType())
+        }
+        this.consume(TokenType.GREATER, "Expected '>' after type arguments.")
+        return { kind: "AlgebraicType", name, typeArgs }
+      }
+
+      return { kind: "TypeVariable", name }
+    }
+
+    // `(` comma_type `)` (`=>` type)*
+    if (this.match(TokenType.LPAREN)) {
+      const paramTypes: Type[] = []
+
+      // comma_type: zero or more types
+      if (!this.check(TokenType.RPAREN)) {
+        paramTypes.push(this.parseType())
+        while (this.match(TokenType.COMMA)) {
+          paramTypes.push(this.parseType())
+        }
+      }
+      this.consume(TokenType.RPAREN, "Expected ')' after types.")
+
+      // function type: `=>` type
+      if (this.match(TokenType.ARROW)) {
+        return {
+          kind: "FunctionType",
+          paramTypes,
+          returnType: this.parseType()
+        }
+      }
+
+      // parenthesized type: must be exactly one type
+      if (paramTypes.length === 1) return paramTypes[0]
+
+      throw new Error("Expected '=>' after multiple types in parentheses.")
+    }
+
+    throw new Error("Expected type. Found: " + TokenType[this.peek().type])
+  }
+
+  // param ::= var `:` type
+  parseParam(): Param {
+    const name = this.consume(TokenType.IDENTIFIER, "Expected parameter name.").value!
+    this.consume(TokenType.COLON, "Expected ':' after parameter name.")
+    const type = this.parseType()
+    return { name, type }
   }
 }
