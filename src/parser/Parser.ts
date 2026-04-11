@@ -1,6 +1,6 @@
 import { Token } from "../lexer/Token"
 import { TokenType } from "../lexer/TokenType"
-import { Expression, Type, Param, Statement, Case, Pattern } from "./AST"
+import { Expression, Type, Param, Statement, Case, Pattern, AlgDef, ConstructorDef, FuncDef, Program } from "./AST"
 
 
 //the Parser converts tokens into an AST
@@ -49,6 +49,24 @@ export class Parser {
     }
 
     throw new Error(message + " Found: " + TokenType[this.peek().type])
+  }
+
+  //program ::= algdef* funcdef* exp
+  parseProgram(): Program {
+    const algDefs: AlgDef[] = []
+    while (this.check(TokenType.ALGDEF)) {
+      algDefs.push(this.parseAlgDef())
+    }
+
+    const funcDefs: FuncDef[] = []
+    while (this.check(TokenType.DEF)) {
+      funcDefs.push(this.parseFuncDef())
+    }
+
+    const expr = this.parseExpression()
+    this.consume(TokenType.EOF, "Expected end of program.")
+
+    return { kind: "Program", algDefs, funcDefs, expr }
   }
 
   //main parser function for expressions
@@ -414,6 +432,93 @@ export class Parser {
     }
 
     throw new Error("Expected expression. Found: " + TokenType[this.peek().type])
+  }
+
+  // funcdef ::= `def` fn [`<` comma_typevar `>`] `(` comma_param `)` `:` type `=` exp `;`
+  parseFuncDef(): FuncDef {
+    this.consume(TokenType.DEF, "Expected 'def'.")
+    const name = this.consume(TokenType.IDENTIFIER, "Expected function name.").value!
+
+    // optional type parameters: [< comma_typevar >]
+    const typeParams: string[] = []
+    if (this.match(TokenType.LESS)) {
+      typeParams.push(this.consume(TokenType.IDENTIFIER, "Expected type variable.").value!)
+      while (this.match(TokenType.COMMA)) {
+        typeParams.push(this.consume(TokenType.IDENTIFIER, "Expected type variable.").value!)
+      }
+      this.consume(TokenType.GREATER, "Expected '>' after type parameters.")
+    }
+
+    // (comma_param)
+    this.consume(TokenType.LPAREN, "Expected '(' after function name.")
+    const params: Param[] = []
+    if (!this.check(TokenType.RPAREN)) {
+      params.push(this.parseParam())
+      while (this.match(TokenType.COMMA)) {
+        params.push(this.parseParam())
+      }
+    }
+    this.consume(TokenType.RPAREN, "Expected ')' after parameters.")
+
+    // : type
+    this.consume(TokenType.COLON, "Expected ':' after parameters.")
+    const returnType = this.parseType()
+
+    // = exp ;
+    this.consume(TokenType.EQUAL, "Expected '=' after return type.")
+    const body = this.parseExpression()
+    this.consume(TokenType.SEMICOLON, "Expected ';' after function body.")
+
+    return { kind: "FuncDef", name, typeParams, params, returnType, body }
+  }
+
+  // consdef ::= consname `(` comma_type `)`
+  private parseConstructorDef(): ConstructorDef {
+    const name = this.consume(TokenType.IDENTIFIER, "Expected constructor name.").value!
+    this.consume(TokenType.LPAREN, "Expected '(' after constructor name.")
+    const params: Type[] = []
+    if (!this.check(TokenType.RPAREN)) {
+      params.push(this.parseType())
+      while (this.match(TokenType.COMMA)) {
+        params.push(this.parseType())
+      }
+    }
+    this.consume(TokenType.RPAREN, "Expected ')' after constructor types.")
+    return { name, params }
+  }
+
+  // algdef ::= `algdef` algname [`<` comma_typevar `>`] `{` comma_consdef `}`
+  parseAlgDef(): AlgDef {
+    this.consume(TokenType.ALGDEF, "Expected 'algdef'.")
+    const name = this.consume(TokenType.IDENTIFIER, "Expected algebraic type name.").value!
+
+    // optional type parameters: [< comma_typevar >]
+    const typeParams: string[] = []
+    if (this.match(TokenType.LESS)) {
+      typeParams.push(this.consume(TokenType.IDENTIFIER, "Expected type variable.").value!)
+      while (this.match(TokenType.COMMA)) {
+        typeParams.push(this.consume(TokenType.IDENTIFIER, "Expected type variable.").value!)
+      }
+      this.consume(TokenType.GREATER, "Expected '>' after type parameters.")
+    }
+
+    this.consume(TokenType.LBRACE, "Expected '{' after algdef name.")
+
+    // comma_consdef: at least one constructor, comma-separated
+    const firstConstructor = this.parseConstructorDef()
+    const restConstructors: ConstructorDef[] = []
+    while (this.match(TokenType.COMMA)) {
+      restConstructors.push(this.parseConstructorDef())
+    }
+
+    this.consume(TokenType.RBRACE, "Expected '}' after constructors.")
+
+    return {
+      kind: "AlgDef",
+      name,
+      typeParams,
+      constructors: [firstConstructor, ...restConstructors]
+    }
   }
 
   // type ::= `Int` | `Boolean` | `Unit`
