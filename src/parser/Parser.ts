@@ -1,6 +1,6 @@
 import { Token } from "../lexer/Token"
 import { TokenType } from "../lexer/TokenType"
-import { Expression, Type, Param } from "./AST"
+import { Expression, Type, Param, Statement, Case, Pattern, AlgDef, ConstructorDef, FuncDef, Program } from "./AST"
 
 
 //the Parser converts tokens into an AST
@@ -49,6 +49,24 @@ export class Parser {
     }
 
     throw new Error(message + " Found: " + TokenType[this.peek().type])
+  }
+
+  //program ::= algdef* funcdef* exp
+  parseProgram(): Program {
+    const algDefs: AlgDef[] = []
+    while (this.check(TokenType.ALGDEF)) {
+      algDefs.push(this.parseAlgDef())
+    }
+
+    const funcDefs: FuncDef[] = []
+    while (this.check(TokenType.DEF)) {
+      funcDefs.push(this.parseFuncDef())
+    }
+
+    const expr = this.parseExpression()
+    this.consume(TokenType.EOF, "Expected end of program.")
+
+    return { kind: "Program", algDefs, funcDefs, expr }
   }
 
   //main parser function for expressions
@@ -135,12 +153,12 @@ export class Parser {
 
   //parse * and / expressions
   private parseMultiplicative(): Expression {
-    let left: Expression = this.parsePrimary()
+    let left: Expression = this.parseCall()
 
     while (true) {
       if (this.match(TokenType.STAR)) {
         const operator = "*"
-        const right = this.parsePrimary()
+        const right = this.parseCall()
 
         left = {
           kind: "BinaryExpression",
@@ -150,7 +168,7 @@ export class Parser {
         }
       } else if (this.match(TokenType.SLASH)) {
         const operator = "/"
-        const right = this.parsePrimary()
+        const right = this.parseCall()
 
         left = {
           kind: "BinaryExpression",
@@ -166,39 +184,186 @@ export class Parser {
     return left
   }
 
-  //parse integers, identifiers, booleans, unit, and parenthesized expressions
+  //scan ahead to check if < is clearly the start of <...>(...)
+  //does not consume any tokens or change parser state
+  private looksLikeTypeInstantiation(): boolean {
+    let i = this.position + 1   // start just after <
+    let depth = 1
+    while (i < this.tokens.length) {
+      if (this.tokens[i].type === TokenType.LESS) depth++
+      else if (this.tokens[i].type === TokenType.GREATER) {
+        depth--
+        if (depth === 0) {
+          return i + 1 < this.tokens.length &&
+                 this.tokens[i + 1].type === TokenType.LPAREN
+        }
+      }
+      i++
+    }
+    return false
+  }
+
+  //parse comma-separated expression arguments
+  private parseArgs(): Expression[] {
+    const args: Expression[] = []
+    if (!this.check(TokenType.RPAREN)) {
+      args.push(this.parseExpression())
+      while (this.match(TokenType.COMMA)) {
+        args.push(this.parseExpression())
+      }
+    }
+    return args
+  }
+
+  //call_exp ::= primary_exp (type_instantiation ( comma_exp ))*
+  private parseCall(): Expression {
+    let callee: Expression = this.parsePrimary()
+
+    while (true) {
+      if (this.check(TokenType.LESS) && this.looksLikeTypeInstantiation()) {
+        this.advance()  // consume <
+        const typeArgs: Type[] = [this.parseType()]
+        while (this.match(TokenType.COMMA)) {
+          typeArgs.push(this.parseType())
+        }
+        this.consume(TokenType.GREATER, "Expected '>' after type arguments.")
+        this.consume(TokenType.LPAREN, "Expected '(' after type arguments.")
+        const args = this.parseArgs()
+        this.consume(TokenType.RPAREN, "Expected ')' after arguments.")
+        callee = { kind: "CallExpression", callee, typeArgs, args }
+      } else if (this.match(TokenType.LPAREN)) {
+        const args = this.parseArgs()
+        this.consume(TokenType.RPAREN, "Expected ')' after arguments.")
+        callee = { kind: "CallExpression", callee, typeArgs: [], args }
+      } else {
+        break
+      }
+    }
+
+    return callee
+  }
+
+  //called after ( is consumed: checks if this looks like a lambda
+  //() => exp: current token is ), next is =>
+  //(param, ...) => exp: current token is IDENTIFIER, next is :
+  private looksLikeLambda(): boolean {
+    if (this.check(TokenType.RPAREN)) {
+      return this.position + 1 < this.tokens.length &&
+             this.tokens[this.position + 1].type === TokenType.ARROW
+    }
+    return this.check(TokenType.IDENTIFIER) &&
+           this.position + 1 < this.tokens.length &&
+           this.tokens[this.position + 1].type === TokenType.COLON
+  }
+
+  //checks if the current token starts a statement
+  private isStatementStart(): boolean {
+    if (this.check(TokenType.VAL) || this.check(TokenType.VAR)) return true
+    //assignment: IDENTIFIER followed by = (not ==)
+    return this.check(TokenType.IDENTIFIER) &&
+           this.position + 1 < this.tokens.length &&
+           this.tokens[this.position + 1].type === TokenType.EQUAL
+  }
+
+  //stmt ::= `val` param `=` exp `;`
+  //       | `var` param `=` exp `;`
+  //       | var `=` exp `;`
+  private parseStatement(): Statement {
+
+    //val param = exp ;
+    if (this.match(TokenType.VAL)) {
+      const name = this.consume(TokenType.IDENTIFIER, "Expected variable name after 'val'.").value!
+      this.consume(TokenType.COLON, "Expected ':' after variable name.")
+      const type = this.parseType()
+      this.consume(TokenType.EQUAL, "Expected '=' after type.")
+      const value = this.parseExpression()
+      this.consume(TokenType.SEMICOLON, "Expected ';' after val declaration.")
+      return { kind: "ValStatement", name, type, value }
+    }
+
+    //var param = exp ;
+    if (this.match(TokenType.VAR)) {
+      const name = this.consume(TokenType.IDENTIFIER, "Expected variable name after 'var'.").value!
+      this.consume(TokenType.COLON, "Expected ':' after variable name.")
+      const type = this.parseType()
+      this.consume(TokenType.EQUAL, "Expected '=' after type.")
+      const value = this.parseExpression()
+      this.consume(TokenType.SEMICOLON, "Expected ';' after var declaration.")
+      return { kind: "VarStatement", name, type, value }
+    }
+
+    //var = exp ;  (assignment to mutable variable)
+    const name = this.consume(TokenType.IDENTIFIER, "Expected variable name.").value!
+    this.consume(TokenType.EQUAL, "Expected '=' after variable name.")
+    const value = this.parseExpression()
+    this.consume(TokenType.SEMICOLON, "Expected ';' after assignment.")
+    return { kind: "AssignStatement", name, value }
+  }
+
+  //case ::= `case` pattern `=>` exp
+  private parseCase(): Case {
+    this.consume(TokenType.CASE, "Expected 'case'.")
+    const pattern = this.parsePattern()
+    this.consume(TokenType.ARROW, "Expected '=>' after pattern.")
+    const body = this.parseExpression()
+    return { pattern, body }
+  }
+
+  //pattern ::= x 
+  // | `_` 
+  // | consname `(` comma_pattern `)`
+  private parsePattern(): Pattern {
+
+    //_
+    if (this.match(TokenType.UNDERSCORE)) {
+      return { kind: "WildcardPattern" }
+    }
+
+    if (this.check(TokenType.IDENTIFIER)) {
+      const name = this.advance().value!
+
+      //consname(comma_pattern)
+      if (this.match(TokenType.LPAREN)) {
+        const args: Pattern[] = []
+        if (!this.check(TokenType.RPAREN)) {
+          args.push(this.parsePattern())
+          while (this.match(TokenType.COMMA)) {
+            args.push(this.parsePattern())
+          }
+        }
+        this.consume(TokenType.RPAREN, "Expected ')' after constructor patterns.")
+        return { kind: "ConstructorPattern", constructorName: name, args }
+      }
+
+      //variable pattern
+      return { kind: "VariablePattern", name }
+    }
+
+    throw new Error("Expected pattern. Found: " + TokenType[this.peek().type])
+  }
+
+  //parse integers, identifiers, booleans, unit, and all primary expressions
   private parsePrimary(): Expression {
     const token = this.peek()
 
     //parse integer literals
     if (this.match(TokenType.INTEGER)) {
-      return {
-        kind: "IntegerLiteral",
-        value: Number(token.value)
-      }
+      return { kind: "IntegerLiteral", value: Number(token.value) }
     }
 
     //parse true
     if (this.match(TokenType.TRUE)) {
-      return {
-        kind: "BooleanLiteral",
-        value: true
-      }
+      return { kind: "BooleanLiteral", value: true }
     }
 
     //parse false
     if (this.match(TokenType.FALSE)) {
-      return {
-        kind: "BooleanLiteral",
-        value: false
-      }
+      return { kind: "BooleanLiteral", value: false }
     }
 
     //parse unit
     if (this.match(TokenType.UNIT)) {
-      return {
-        kind: "UnitLiteral"
-      }
+      return { kind: "UnitLiteral" }
     }
 
     //parse identifiers
@@ -209,14 +374,151 @@ export class Parser {
       }
     }
 
-    //parse parenthesized expressions
+    //println(exp)
+    if (this.match(TokenType.PRINTLN)) {
+      this.consume(TokenType.LPAREN, "Expected '(' after 'println'.")
+      const arg = this.parseExpression()
+      this.consume(TokenType.RPAREN, "Expected ')' after println argument.")
+      return { kind: "PrintlnExpression", arg }
+    }
+
+    //(comma_param) => exp  OR  (exp)
     if (this.match(TokenType.LPAREN)) {
+      if (this.looksLikeLambda()) {
+        const params: Param[] = []
+        if (!this.check(TokenType.RPAREN)) {
+          params.push(this.parseParam())
+          while (this.match(TokenType.COMMA)) {
+            params.push(this.parseParam())
+          }
+        }
+        this.consume(TokenType.RPAREN, "Expected ')' after parameters.")
+        this.consume(TokenType.ARROW, "Expected '=>' after parameters.")
+        const body = this.parseExpression()
+        return { kind: "LambdaExpression", params, body }
+      }
+      //parenthesized expression
       const expr: Expression = this.parseExpression()
       this.consume(TokenType.RPAREN, "Expected ')' after expression.")
       return expr
     }
 
+    //{ stmt* exp }
+    if (this.match(TokenType.LBRACE)) {
+      const stmts: Statement[] = []
+      while (!this.check(TokenType.RBRACE) && !this.check(TokenType.EOF)) {
+        if (this.isStatementStart()) {
+          stmts.push(this.parseStatement())
+        } else {
+          break
+        }
+      }
+      const expr = this.parseExpression()
+      this.consume(TokenType.RBRACE, "Expected '}' after block.")
+      return { kind: "BlockExpression", stmts, expr }
+    }
+
+    //match exp { case+ }
+    if (this.match(TokenType.MATCH)) {
+      const subject = this.parseExpression()
+      this.consume(TokenType.LBRACE, "Expected '{' after match expression.")
+      const firstCase = this.parseCase()
+      const restCases: Case[] = []
+      while (this.check(TokenType.CASE)) {
+        restCases.push(this.parseCase())
+      }
+      this.consume(TokenType.RBRACE, "Expected '}' after match cases.")
+      return { kind: "MatchExpression", subject, cases: [firstCase, ...restCases] }
+    }
+
     throw new Error("Expected expression. Found: " + TokenType[this.peek().type])
+  }
+
+  // funcdef ::= `def` fn [`<` comma_typevar `>`] `(` comma_param `)` `:` type `=` exp `;`
+  parseFuncDef(): FuncDef {
+    this.consume(TokenType.DEF, "Expected 'def'.")
+    const name = this.consume(TokenType.IDENTIFIER, "Expected function name.").value!
+
+    // optional type parameters: [< comma_typevar >]
+    const typeParams: string[] = []
+    if (this.match(TokenType.LESS)) {
+      typeParams.push(this.consume(TokenType.IDENTIFIER, "Expected type variable.").value!)
+      while (this.match(TokenType.COMMA)) {
+        typeParams.push(this.consume(TokenType.IDENTIFIER, "Expected type variable.").value!)
+      }
+      this.consume(TokenType.GREATER, "Expected '>' after type parameters.")
+    }
+
+    // (comma_param)
+    this.consume(TokenType.LPAREN, "Expected '(' after function name.")
+    const params: Param[] = []
+    if (!this.check(TokenType.RPAREN)) {
+      params.push(this.parseParam())
+      while (this.match(TokenType.COMMA)) {
+        params.push(this.parseParam())
+      }
+    }
+    this.consume(TokenType.RPAREN, "Expected ')' after parameters.")
+
+    // : type
+    this.consume(TokenType.COLON, "Expected ':' after parameters.")
+    const returnType = this.parseType()
+
+    // = exp ;
+    this.consume(TokenType.EQUAL, "Expected '=' after return type.")
+    const body = this.parseExpression()
+    this.consume(TokenType.SEMICOLON, "Expected ';' after function body.")
+
+    return { kind: "FuncDef", name, typeParams, params, returnType, body }
+  }
+
+  // consdef ::= consname `(` comma_type `)`
+  private parseConstructorDef(): ConstructorDef {
+    const name = this.consume(TokenType.IDENTIFIER, "Expected constructor name.").value!
+    this.consume(TokenType.LPAREN, "Expected '(' after constructor name.")
+    const params: Type[] = []
+    if (!this.check(TokenType.RPAREN)) {
+      params.push(this.parseType())
+      while (this.match(TokenType.COMMA)) {
+        params.push(this.parseType())
+      }
+    }
+    this.consume(TokenType.RPAREN, "Expected ')' after constructor types.")
+    return { name, params }
+  }
+
+  // algdef ::= `algdef` algname [`<` comma_typevar `>`] `{` comma_consdef `}`
+  parseAlgDef(): AlgDef {
+    this.consume(TokenType.ALGDEF, "Expected 'algdef'.")
+    const name = this.consume(TokenType.IDENTIFIER, "Expected algebraic type name.").value!
+
+    // optional type parameters: [< comma_typevar >]
+    const typeParams: string[] = []
+    if (this.match(TokenType.LESS)) {
+      typeParams.push(this.consume(TokenType.IDENTIFIER, "Expected type variable.").value!)
+      while (this.match(TokenType.COMMA)) {
+        typeParams.push(this.consume(TokenType.IDENTIFIER, "Expected type variable.").value!)
+      }
+      this.consume(TokenType.GREATER, "Expected '>' after type parameters.")
+    }
+
+    this.consume(TokenType.LBRACE, "Expected '{' after algdef name.")
+
+    // comma_consdef: at least one constructor, comma-separated
+    const firstConstructor = this.parseConstructorDef()
+    const restConstructors: ConstructorDef[] = []
+    while (this.match(TokenType.COMMA)) {
+      restConstructors.push(this.parseConstructorDef())
+    }
+
+    this.consume(TokenType.RBRACE, "Expected '}' after constructors.")
+
+    return {
+      kind: "AlgDef",
+      name,
+      typeParams,
+      constructors: [firstConstructor, ...restConstructors]
+    }
   }
 
   // type ::= `Int` | `Boolean` | `Unit`
